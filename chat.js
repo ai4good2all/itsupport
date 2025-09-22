@@ -2,113 +2,209 @@ import formidable from "formidable";
 import { createReadStream } from "fs";
 import OpenAI from "openai";
 
-// For Next.js API routes; harmless on Vercel serverless too
-export const config = { api: { bodyParser: false } };
+// Disable body parser for file uploads
+export const config = { 
+  api: { 
+    bodyParser: false 
+  } 
+};
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY 
+});
+
 const assistantId = process.env.ASSISTANT_ID;
 
 export default async function handler(req, res) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
+
   try {
-    if (req.method !== "POST") {
-      res.setHeader("Allow", "POST");
-      return res.status(405).json({ error: "Method Not Allowed" });
+    // Validate environment variables
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("Missing OPENAI_API_KEY");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    if (!assistantId) {
+      console.error("Missing ASSISTANT_ID");
+      return res.status(500).json({ error: "Server configuration error" });
     }
 
-    // Parse multipart/form-data (message, thread_id, screenshot)
+    // Parse multipart/form-data
     const form = formidable({
       multiples: false,
       maxFiles: 1,
       maxFileSize: 10 * 1024 * 1024, // 10MB
-      filter: ({ mimetype }) =>
-        !mimetype ||
-        ["image/png", "image/jpeg", "image/jpg"].includes(mimetype.toLowerCase())
+      filter: ({ mimetype }) => {
+        if (!mimetype) return true;
+        return ["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(mimetype.toLowerCase());
+      }
     });
 
     const { fields, files } = await new Promise((resolve, reject) => {
-      form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
+      form.parse(req, (err, fields, files) => {
+        if (err) {
+          console.error("Form parse error:", err);
+          reject(err);
+        } else {
+          resolve({ fields, files });
+        }
+      });
     });
 
-    const message = (fields.message ?? "").toString().slice(0, 4000);
-    const incomingThreadId = fields.thread_id ? fields.thread_id.toString() : null;
-    const screenshotFile = files?.screenshot;
+    // Extract data from parsed form
+    const message = Array.isArray(fields.message) ? fields.message[0] : (fields.message || "");
+    const incomingThreadId = Array.isArray(fields.thread_id) ? fields.thread_id[0] : fields.thread_id;
+    const screenshotFile = Array.isArray(files.screenshot) ? files.screenshot[0] : files.screenshot;
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
-    }
-    if (!assistantId) {
-      return res.status(500).json({ error: "Missing ASSISTANT_ID" });
+    console.log("Received message:", message);
+    console.log("Thread ID:", incomingThreadId);
+    console.log("Screenshot file:", screenshotFile ? "Yes" : "No");
+
+    // Validate message content
+    if (!message.trim() && !screenshotFile) {
+      return res.status(400).json({ error: "Message or screenshot required" });
     }
 
-    // Create or reuse thread
+    // Create or use existing thread
     let threadId = incomingThreadId;
     if (!threadId) {
-      const t = await openai.beta.threads.create();
-      threadId = t.id;
+      const thread = await openai.beta.threads.create();
+      threadId = thread.id;
+      console.log("Created new thread:", threadId);
+    } else {
+      console.log("Using existing thread:", threadId);
     }
 
-    // Optional: upload screenshot
+    // Upload screenshot if provided
     let fileId = null;
     if (screenshotFile && screenshotFile.filepath) {
-      const uploaded = await openai.files.create({
-        file: createReadStream(screenshotFile.filepath),
-        purpose: "assistants",
-        filename: screenshotFile.originalFilename || "screenshot.jpg"
-      });
-      fileId = uploaded.id;
+      try {
+        const uploadedFile = await openai.files.create({
+          file: createReadStream(screenshotFile.filepath),
+          purpose: "assistants"
+        });
+        fileId = uploadedFile.id;
+        console.log("Uploaded file:", fileId);
+      } catch (uploadError) {
+        console.error("File upload error:", uploadError);
+        return res.status(500).json({ error: "Failed to upload screenshot" });
+      }
     }
 
-    // Add user message
-    await openai.beta.threads.messages.create(threadId, {
+    // Add user message to thread
+    const messageData = {
       role: "user",
-      content: message || "(User uploaded a screenshot.)",
-      file_ids: fileId ? [fileId] : []
-    });
+      content: message.trim() || "I've uploaded a screenshot for you to analyze."
+    };
 
-    // Run the assistant
+    // Add file attachment if we have one
+    if (fileId) {
+      messageData.attachments = [{
+        file_id: fileId,
+        tools: [{ type: "file_search" }]
+      }];
+    }
+
+    await openai.beta.threads.messages.create(threadId, messageData);
+    console.log("Added message to thread");
+
+    // Create and run the assistant
     const run = await openai.beta.threads.runs.create(threadId, {
       assistant_id: assistantId
     });
 
-    // Poll until the run completes (or fails)
-    let runStatus = "queued";
-    let attempts = 0;
-    while (
-      !["completed", "failed", "cancelled", "expired"].includes(runStatus) &&
-      attempts < 120 // ~2 min max
-    ) {
-      await new Promise((r) => setTimeout(r, 1200));
-      const current = await openai.beta.threads.runs.retrieve(threadId, run.id);
-      runStatus = current.status;
-      attempts++;
-    }
+    console.log("Created run:", run.id);
 
-    // Delete uploaded file for privacy
-    if (fileId) {
-      try {
-        await openai.files.del(fileId);
-      } catch {
-        // swallow deletion errors to not break the response
+    // Poll for completion
+    let runStatus = run.status;
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes max
+
+    while (!["completed", "failed", "cancelled", "expired"].includes(runStatus) && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      
+      const currentRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      runStatus = currentRun.status;
+      attempts++;
+      
+      console.log(`Run status: ${runStatus}, attempt: ${attempts}`);
+
+      // Handle requires_action status (for function calls)
+      if (runStatus === "requires_action") {
+        console.log("Run requires action - this shouldn't happen with basic assistant");
+        break;
       }
     }
 
+    // Clean up uploaded file for privacy
+    if (fileId) {
+      try {
+        await openai.files.del(fileId);
+        console.log("Deleted uploaded file:", fileId);
+      } catch (deleteError) {
+        console.warn("Failed to delete file:", deleteError.message);
+        // Don't fail the request if file deletion fails
+      }
+    }
+
+    // Check final run status
     if (runStatus !== "completed") {
-      return res.status(500).json({ error: `Run status: ${runStatus}`, thread_id: threadId });
+      console.error("Run did not complete successfully:", runStatus);
+      return res.status(500).json({ 
+        error: `Assistant run ${runStatus}`, 
+        thread_id: threadId 
+      });
     }
 
-    // Get the latest assistant reply
-    const list = await openai.beta.threads.messages.list(threadId, { order: "desc", limit: 10 });
-    const assistantMsg = list.data.find((m) => m.role === "assistant");
+    // Get the assistant's response
+    const messages = await openai.beta.threads.messages.list(threadId, {
+      order: "desc",
+      limit: 10
+    });
 
-    let reply = "No reply.";
-    if (assistantMsg?.content?.length) {
-      const textPart = assistantMsg.content.find((p) => p.type === "text");
-      if (textPart?.text?.value) reply = textPart.text.value;
+    const assistantMessage = messages.data.find(msg => msg.role === "assistant");
+    
+    let reply = "I apologize, but I couldn't generate a response. Please try again.";
+    if (assistantMessage && assistantMessage.content && assistantMessage.content.length > 0) {
+      const textContent = assistantMessage.content.find(content => content.type === "text");
+      if (textContent && textContent.text && textContent.text.value) {
+        reply = textContent.text.value;
+      }
     }
 
-    return res.status(200).json({ reply, thread_id: threadId });
-  } catch (err) {
-    console.error("chat API error:", err);
-    return res.status(500).json({ error: "Server error" });
+    console.log("Sending response");
+    return res.status(200).json({ 
+      reply, 
+      thread_id: threadId 
+    });
+
+  } catch (error) {
+    console.error("API error:", error);
+    
+    // Provide more specific error messages
+    if (error.code === 'invalid_api_key') {
+      return res.status(401).json({ error: "Invalid API key" });
+    } else if (error.code === 'model_not_found') {
+      return res.status(400).json({ error: "Assistant not found" });
+    } else if (error.message && error.message.includes('timeout')) {
+      return res.status(408).json({ error: "Request timeout" });
+    }
+    
+    return res.status(500).json({ 
+      error: "Internal server error",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 }
