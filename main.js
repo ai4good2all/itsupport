@@ -59,3 +59,4 @@ sendBtn.addEventListener("click", sendMessage);
 inputField.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
+
