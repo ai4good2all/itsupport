@@ -107,7 +107,7 @@ async function sendMessage() {
     console.log("Sending request to /api/chat");
 
     // Send request
-    const response = await fetch("https://itsupportagent-git-main-mikes-projects-73ad5f01.vercel.app/api/chat", {
+    const response = await fetch("./api/chat", {
       method: "POST",
       body: formData,
     });
