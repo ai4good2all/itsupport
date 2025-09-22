@@ -2,72 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AI IT Support Agent</title>
   <style>
-    * {
-      box-sizing: border-box;
-      font-family: Arial, sans-serif;
-    }
-    body {
-      margin: 0;
-      background: #f4f4f4;
-    }
+    * { box-sizing: border-box; font-family: Arial, sans-serif; }
+    body { margin: 0; background: #f4f4f4; }
     .chat-container {
-      max-width: 800px;
-      margin: auto;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      background: #fff;
-      border-left: 1px solid #ccc;
-      border-right: 1px solid #ccc;
+      max-width: 800px; margin: auto; height: 100vh;
+      display: flex; flex-direction: column; background: #fff;
+      border-left: 1px solid #ccc; border-right: 1px solid #ccc;
     }
-    .chat-messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px;
-    }
-    .message {
-      margin: 10px 0;
-      padding: 12px;
-      border-radius: 10px;
-      max-width: 80%;
-    }
-    .user-message {
-      background: #d0eaff;
-      align-self: flex-end;
-    }
-    .bot-message {
-      background: #f0f0f0;
-      align-self: flex-start;
-    }
-    .chat-input {
-      display: flex;
-      padding: 10px;
-      border-top: 1px solid #ccc;
-    }
-    .chat-input input[type="file"] {
-      margin-right: 10px;
-    }
-    .chat-input input[type="text"] {
-      flex: 1;
-      padding: 10px;
-      font-size: 16px;
-    }
-    .chat-input button {
-      padding: 10px 16px;
-      font-size: 16px;
-    }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; }
+    .message { margin: 10px 0; padding: 12px; border-radius: 10px; max-width: 80%; }
+    .user-message { background: #d0eaff; align-self: flex-end; }
+    .bot-message { background: #f0f0f0; align-self: flex-start; white-space: pre-wrap; }
+    .chat-input { display: flex; padding: 10px; border-top: 1px solid #ccc; gap: 8px; }
+    .chat-input input[type="text"] { flex: 1; padding: 10px; font-size: 16px; }
+    .chat-input input[type="file"] { width: 220px; }
+    .chat-input button { padding: 10px 16px; font-size: 16px; }
   </style>
 </head>
 <body>
   <div class="chat-container">
     <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-input">
-      <input type="file" id="screenshot" accept="image/png, image/jpeg" />
-      <input type="text" id="user-input" placeholder="Describe your IT issue..." />
-      <button onclick="sendMessage()">Send</button>
+      <input type="file" id="screenshot" accept="image/png, image/jpeg"/>
+      <input type="text" id="user-input" placeholder="Describe your IT issue..."/>
+      <button id="send-btn">Send</button>
     </div>
   </div>
   <script src="/src/main.js"></script>
