@@ -92,58 +92,55 @@ export default async function handler(req, res) {
     let fileId = null;
     if (screenshotFile && screenshotFile.filepath) {
       try {
+        // Get the original filename or create one with proper extension
+        let filename = screenshotFile.originalFilename || screenshotFile.name || "screenshot.png";
+        
+        // Ensure filename has a proper extension
+        if (!filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+          // Try to determine extension from MIME type
+          const mimeType = screenshotFile.mimetype || screenshotFile.type;
+          if (mimeType) {
+            if (mimeType.includes('jpeg')) filename += '.jpg';
+            else if (mimeType.includes('png')) filename += '.png';
+            else if (mimeType.includes('gif')) filename += '.gif';
+            else if (mimeType.includes('webp')) filename += '.webp';
+            else filename += '.png'; // default fallback
+          } else {
+            filename += '.png'; // default fallback
+          }
+        }
+        
+        console.log("Uploading file with name:", filename, "mimetype:", screenshotFile.mimetype);
+        
         const uploadedFile = await openai.files.create({
           file: createReadStream(screenshotFile.filepath),
-          purpose: "vision"  // Changed from "assistants" to "vision" for better image analysis
+          purpose: "assistants",
+          filename: filename  // Explicitly specify filename with extension
         });
         fileId = uploadedFile.id;
-        console.log("Uploaded file for vision:", fileId);
+        console.log("Uploaded file successfully:", fileId);
       } catch (uploadError) {
         console.error("File upload error:", uploadError);
-        // Try fallback to assistants purpose
-        try {
-          const uploadedFile = await openai.files.create({
-            file: createReadStream(screenshotFile.filepath),
-            purpose: "assistants"
-          });
-          fileId = uploadedFile.id;
-          console.log("Uploaded file for assistants:", fileId);
-        } catch (fallbackError) {
-          console.error("Fallback file upload error:", fallbackError);
-          return res.status(500).json({ error: "Failed to upload screenshot" });
-        }
+        return res.status(500).json({ error: "Failed to upload screenshot" });
       }
     }
 
-    // Prepare message content with image
-    let messageContent;
-    
+    // Add user message to thread with simpler format
+    const messageData = {
+      role: "user",
+      content: message.trim() || "I've uploaded a screenshot for you to analyze. Please help me troubleshoot the issue shown in this image."
+    };
+
+    // Add file attachment using the attachments format (simpler and more reliable)
     if (fileId) {
-      // For images, use the content array format that supports vision
-      messageContent = [
-        {
-          type: "text",
-          text: message.trim() || "I've uploaded a screenshot for you to analyze. Please help me troubleshoot the issue shown in this image."
-        },
-        {
-          type: "image_file",
-          image_file: {
-            file_id: fileId
-          }
-        }
-      ];
-    } else {
-      // Text only message
-      messageContent = message.trim() || "Hello, I need IT support assistance.";
+      messageData.attachments = [{
+        file_id: fileId,
+        tools: [{ type: "file_search" }]
+      }];
     }
 
-    // Add user message to thread
-    await openai.beta.threads.messages.create(threadId, {
-      role: "user",
-      content: messageContent
-    });
-    
-    console.log("Added message to thread with content type:", typeof messageContent);
+    await openai.beta.threads.messages.create(threadId, messageData);
+    console.log("Added message to thread with attachment:", !!fileId);
 
     // Create and run the assistant
     const run = await openai.beta.threads.runs.create(threadId, {
