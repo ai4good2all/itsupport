@@ -4,7 +4,7 @@ const fileInput = document.getElementById("screenshot");
 const fileLabel = document.getElementById("file-label");
 const sendBtn = document.getElementById("send-btn");
 
-// Thread persistence
+// Thread persistence - MS
 let threadId = sessionStorage.getItem("thread_id") || null;
 
 // Initialize
