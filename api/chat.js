@@ -16,11 +16,11 @@ const openai = new OpenAI({
 const assistantId = process.env.ASSISTANT_ID;
 
 export default async function handler(req, res) {
-// Enable CORS
-res.setHeader('Access-Control-Allow-Origin', '*');
-res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-res.setHeader('Access-Control-Allow-Credentials', 'false');;
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'false');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -94,32 +94,56 @@ res.setHeader('Access-Control-Allow-Credentials', 'false');;
       try {
         const uploadedFile = await openai.files.create({
           file: createReadStream(screenshotFile.filepath),
-          purpose: "assistants"
+          purpose: "vision"  // Changed from "assistants" to "vision" for better image analysis
         });
         fileId = uploadedFile.id;
-        console.log("Uploaded file:", fileId);
+        console.log("Uploaded file for vision:", fileId);
       } catch (uploadError) {
         console.error("File upload error:", uploadError);
-        return res.status(500).json({ error: "Failed to upload screenshot" });
+        // Try fallback to assistants purpose
+        try {
+          const uploadedFile = await openai.files.create({
+            file: createReadStream(screenshotFile.filepath),
+            purpose: "assistants"
+          });
+          fileId = uploadedFile.id;
+          console.log("Uploaded file for assistants:", fileId);
+        } catch (fallbackError) {
+          console.error("Fallback file upload error:", fallbackError);
+          return res.status(500).json({ error: "Failed to upload screenshot" });
+        }
       }
     }
 
-    // Add user message to thread
-    const messageData = {
-      role: "user",
-      content: message.trim() || "I've uploaded a screenshot for you to analyze."
-    };
-
-    // Add file attachment if we have one
+    // Prepare message content with image
+    let messageContent;
+    
     if (fileId) {
-      messageData.attachments = [{
-        file_id: fileId,
-        tools: [{ type: "file_search" }]
-      }];
+      // For images, use the content array format that supports vision
+      messageContent = [
+        {
+          type: "text",
+          text: message.trim() || "I've uploaded a screenshot for you to analyze. Please help me troubleshoot the issue shown in this image."
+        },
+        {
+          type: "image_file",
+          image_file: {
+            file_id: fileId
+          }
+        }
+      ];
+    } else {
+      // Text only message
+      messageContent = message.trim() || "Hello, I need IT support assistance.";
     }
 
-    await openai.beta.threads.messages.create(threadId, messageData);
-    console.log("Added message to thread");
+    // Add user message to thread
+    await openai.beta.threads.messages.create(threadId, {
+      role: "user",
+      content: messageContent
+    });
+    
+    console.log("Added message to thread with content type:", typeof messageContent);
 
     // Create and run the assistant
     const run = await openai.beta.threads.runs.create(threadId, {
@@ -192,7 +216,9 @@ res.setHeader('Access-Control-Allow-Credentials', 'false');;
     });
 
   } catch (error) {
-    console.error("API error:", error);
+    console.error("API error details:", error);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
     
     // Provide more specific error messages
     if (error.code === 'invalid_api_key') {
@@ -205,7 +231,7 @@ res.setHeader('Access-Control-Allow-Credentials', 'false');;
     
     return res.status(500).json({ 
       error: "Internal server error",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : "Check server logs"
     });
   }
 }
