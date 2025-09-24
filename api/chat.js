@@ -37,6 +37,10 @@ export default async function handler(req, res) {
       console.error("Missing OPENAI_API_KEY");
       return res.status(500).json({ error: "Server configuration error" });
     }
+    if (!assistantId) {
+      console.error("Missing ASSISTANT_ID");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
 
     // Parse multipart/form-data
     const form = formidable({
@@ -74,98 +78,147 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Message or screenshot required" });
     }
 
-    // Use Chat Completions API with vision instead of Assistants API
-    let conversationMessages = [
-      {
-        role: "system",
-        content: `I need you to help me diagnose why my computer is having an issue that the customer is stating. We need to diagnose it one step at a time. Each step you can ask me to do something and then take a screenshot to verify that I did it correctly. Always start by asking for a screenshot of my system to know what you are working with. Here is a list of the requirements of your tasks for assisting as an IT Support agent:
+    // Create or use existing thread
+    let threadId = incomingThreadId;
+    if (!threadId) {
+      const thread = await openai.beta.threads.create();
+      threadId = thread.id;
+      console.log("Created new thread:", threadId);
+    } else {
+      console.log("Using existing thread:", threadId);
+    }
 
--Only look for the issue stated by the user when analyzing the screen shots to save memory
--Only help with the permission that is available. For example, if issues needs to be resolved with an elevate administration password, to state that you dont have the required access to further assist and they should reach out to the companies it support techs.
--Only solve issues related for IT related tasks. Any mention about helping with another task, please state that you are only here to troubleshoot it related task. So please consult the proper assistant to get further help. If it is IT related, I would be gladly able to assist.`
+    // Upload screenshot if provided
+    let fileId = null;
+    if (screenshotFile && screenshotFile.filepath) {
+      try {
+        console.log("File details:", {
+          originalFilename: screenshotFile.originalFilename,
+          mimetype: screenshotFile.mimetype,
+          size: screenshotFile.size
+        });
+        
+        // The issue is that file_search tool doesn't support images
+        // Let's change the attachment tool to something more appropriate
+        const uploadedFile = await openai.files.create({
+          file: createReadStream(screenshotFile.filepath),
+          purpose: "assistants"
+        });
+        fileId = uploadedFile.id;
+        console.log("Uploaded file successfully:", fileId);
+      } catch (uploadError) {
+        console.error("File upload error:", uploadError);
+        return res.status(500).json({ error: "Failed to upload screenshot" });
       }
-    ];
+    }
 
-    // Create user message content
-    let userContent = [];
-    
-    if (message.trim()) {
-      userContent.push({
-        type: "text",
-        text: message.trim()
+    // Add user message to thread with simpler format
+    const messageData = {
+      role: "user",
+      content: message.trim() || "I've uploaded a screenshot for you to analyze. Please help me troubleshoot the issue shown in this image."
+    };
+
+    // Change the tool from file_search to code_interpreter for image analysis
+    if (fileId) {
+      messageData.attachments = [{
+        file_id: fileId,
+        tools: [{ type: "code_interpreter" }]  // Changed from file_search to code_interpreter
+      }];
+    }
+
+    await openai.beta.threads.messages.create(threadId, messageData);
+    console.log("Added message to thread with attachment:", !!fileId);
+
+    // Create and run the assistant
+    const run = await openai.beta.threads.runs.create(threadId, {
+      assistant_id: assistantId
+    });
+
+    console.log("Created run:", run.id);
+
+    // Poll for completion
+    let runStatus = run.status;
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes max
+
+    while (!["completed", "failed", "cancelled", "expired"].includes(runStatus) && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      
+      const currentRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      runStatus = currentRun.status;
+      attempts++;
+      
+      console.log(`Run status: ${runStatus}, attempt: ${attempts}`);
+
+      // Handle requires_action status (for function calls)
+      if (runStatus === "requires_action") {
+        console.log("Run requires action - this shouldn't happen with basic assistant");
+        break;
+      }
+    }
+
+    // Clean up uploaded file for privacy
+    if (fileId) {
+      try {
+        await openai.files.del(fileId);
+        console.log("Deleted uploaded file:", fileId);
+      } catch (deleteError) {
+        console.warn("Failed to delete file:", deleteError.message);
+        // Don't fail the request if file deletion fails
+      }
+    }
+
+    // Check final run status and get detailed error if failed
+    if (runStatus !== "completed") {
+      console.error("Run did not complete successfully:", runStatus);
+      
+      // Get the detailed run information to see the error
+      const failedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      console.error("Failed run details:", JSON.stringify(failedRun, null, 2));
+      
+      if (failedRun.last_error) {
+        console.error("Run error details:", failedRun.last_error);
+      }
+      
+      return res.status(500).json({ 
+        error: `Assistant run ${runStatus}`, 
+        details: failedRun.last_error?.message || "Check function logs for details",
+        thread_id: threadId 
       });
     }
 
-    // Handle screenshot with base64 encoding for direct vision analysis
-    if (screenshotFile && screenshotFile.filepath) {
-      try {
-        const fs = await import('fs');
-        const imageBuffer = fs.readFileSync(screenshotFile.filepath);
-        const base64Image = imageBuffer.toString('base64');
-        
-        // Determine image format
-        let imageFormat = 'png';
-        if (screenshotFile.mimetype?.includes('jpeg')) imageFormat = 'jpeg';
-        else if (screenshotFile.mimetype?.includes('png')) imageFormat = 'png';
-        else if (screenshotFile.mimetype?.includes('webp')) imageFormat = 'webp';
+    // Get the assistant's response
+    const messages = await openai.beta.threads.messages.list(threadId, {
+      order: "desc",
+      limit: 10
+    });
 
-        userContent.push({
-          type: "image_url",
-          image_url: {
-            url: `data:image/${imageFormat};base64,${base64Image}`,
-            detail: "high"
-          }
-        });
-
-        // Add explicit instruction for image analysis
-        if (!message.trim()) {
-          userContent.unshift({
-            type: "text",
-            text: "I've uploaded a screenshot. Please analyze what you can see in this image and provide specific troubleshooting steps based on the visual information."
-          });
-        }
-
-        console.log("Added image for direct vision analysis");
-      } catch (imageError) {
-        console.error("Image processing error:", imageError);
-        return res.status(500).json({ error: "Failed to process screenshot" });
+    const assistantMessage = messages.data.find(msg => msg.role === "assistant");
+    
+    let reply = "I apologize, but I couldn't generate a response. Please try again.";
+    if (assistantMessage && assistantMessage.content && assistantMessage.content.length > 0) {
+      const textContent = assistantMessage.content.find(content => content.type === "text");
+      if (textContent && textContent.text && textContent.text.value) {
+        reply = textContent.text.value;
       }
     }
 
-    // Add user message to conversation
-    conversationMessages.push({
-      role: "user",
-      content: userContent
-    });
-
-    console.log("Making request to OpenAI Chat Completions with vision");
-
-    // Use Chat Completions API with vision model
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o", // Vision-capable model
-      messages: conversationMessages,
-      max_tokens: 1000,
-      temperature: 0.7
-    });
-
-    const reply = completion.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
-    
-    // Generate a simple thread ID for session tracking
-    const newThreadId = incomingThreadId || `thread_${Date.now()}`;
-
-    console.log("Successfully got vision-enabled response");
+    console.log("Sending response");
     return res.status(200).json({ 
       reply, 
-      thread_id: newThreadId 
+      thread_id: threadId 
     });
 
   } catch (error) {
     console.error("API error details:", error);
     console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
     
     // Provide more specific error messages
     if (error.code === 'invalid_api_key') {
       return res.status(401).json({ error: "Invalid API key" });
+    } else if (error.code === 'model_not_found') {
+      return res.status(400).json({ error: "Assistant not found" });
     } else if (error.message && error.message.includes('timeout')) {
       return res.status(408).json({ error: "Request timeout" });
     }
@@ -175,3 +228,4 @@ export default async function handler(req, res) {
       details: process.env.NODE_ENV === 'development' ? error.message : "Check server logs"
     });
   }
+}
