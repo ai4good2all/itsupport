@@ -37,10 +37,6 @@ export default async function handler(req, res) {
       console.error("Missing OPENAI_API_KEY");
       return res.status(500).json({ error: "Server configuration error" });
     }
-    if (!assistantId) {
-      console.error("Missing ASSISTANT_ID");
-      return res.status(500).json({ error: "Server configuration error" });
-    }
 
     // Parse multipart/form-data
     const form = formidable({
@@ -78,9 +74,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Message or screenshot required" });
     }
 
-    // Instead of using Assistants API, use Chat Completions with vision
-    // This provides better image analysis capabilities
-    
+    // Use Chat Completions API with vision instead of Assistants API
     let conversationMessages = [
       {
         role: "system",
@@ -144,6 +138,8 @@ export default async function handler(req, res) {
       content: userContent
     });
 
+    console.log("Making request to OpenAI Chat Completions with vision");
+
     // Use Chat Completions API with vision model
     const completion = await openai.chat.completions.create({
       model: "gpt-4o", // Vision-capable model
@@ -162,12 +158,14 @@ export default async function handler(req, res) {
       reply, 
       thread_id: newThreadId 
     });
+
+  } catch (error) {
+    console.error("API error details:", error);
+    console.error("Error message:", error.message);
     
     // Provide more specific error messages
     if (error.code === 'invalid_api_key') {
       return res.status(401).json({ error: "Invalid API key" });
-    } else if (error.code === 'model_not_found') {
-      return res.status(400).json({ error: "Assistant not found" });
     } else if (error.message && error.message.includes('timeout')) {
       return res.status(408).json({ error: "Request timeout" });
     }
@@ -177,4 +175,3 @@ export default async function handler(req, res) {
       details: process.env.NODE_ENV === 'development' ? error.message : "Check server logs"
     });
   }
-}
