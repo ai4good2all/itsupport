@@ -2,7 +2,7 @@ import formidable from "formidable";
 import { createReadStream } from "fs";
 import OpenAI from "openai";
 
-// Disable body parser for file uploads
+// Disable body parser for file uploads 
 export const config = { 
   api: { 
     bodyParser: false 
