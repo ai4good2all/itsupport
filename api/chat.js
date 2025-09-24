@@ -92,30 +92,16 @@ export default async function handler(req, res) {
     let fileId = null;
     if (screenshotFile && screenshotFile.filepath) {
       try {
-        // Get the original filename or create one with proper extension
-        let filename = screenshotFile.originalFilename || screenshotFile.name || "screenshot.png";
-        
-        // Ensure filename has a proper extension
-        if (!filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-          // Try to determine extension from MIME type
-          const mimeType = screenshotFile.mimetype || screenshotFile.type;
-          if (mimeType) {
-            if (mimeType.includes('jpeg')) filename += '.jpg';
-            else if (mimeType.includes('png')) filename += '.png';
-            else if (mimeType.includes('gif')) filename += '.gif';
-            else if (mimeType.includes('webp')) filename += '.webp';
-            else filename += '.png'; // default fallback
-          } else {
-            filename += '.png'; // default fallback
-          }
-        }
-        
-        console.log("Uploading file with name:", filename, "mimetype:", screenshotFile.mimetype);
+        console.log("File details:", {
+          originalFilename: screenshotFile.originalFilename,
+          mimetype: screenshotFile.mimetype,
+          size: screenshotFile.size
+        });
         
         const uploadedFile = await openai.files.create({
           file: createReadStream(screenshotFile.filepath),
-          purpose: "assistants",
-          filename: filename  // Explicitly specify filename with extension
+          purpose: "assistants"
+          // Removed the 'filename' parameter - OpenAI API doesn't support it
         });
         fileId = uploadedFile.id;
         console.log("Uploaded file successfully:", fileId);
