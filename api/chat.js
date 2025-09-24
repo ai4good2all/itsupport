@@ -167,11 +167,21 @@ export default async function handler(req, res) {
       }
     }
 
-    // Check final run status
+    // Check final run status and get detailed error if failed
     if (runStatus !== "completed") {
       console.error("Run did not complete successfully:", runStatus);
+      
+      // Get the detailed run information to see the error
+      const failedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      console.error("Failed run details:", JSON.stringify(failedRun, null, 2));
+      
+      if (failedRun.last_error) {
+        console.error("Run error details:", failedRun.last_error);
+      }
+      
       return res.status(500).json({ 
         error: `Assistant run ${runStatus}`, 
+        details: failedRun.last_error?.message || "Check function logs for details",
         thread_id: threadId 
       });
     }
