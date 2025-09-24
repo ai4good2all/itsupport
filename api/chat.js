@@ -98,19 +98,44 @@ export default async function handler(req, res) {
           size: screenshotFile.size
         });
         
-        const uploadedFile = await openai.files.create({
-          file: createReadStream(screenshotFile.filepath),
-          purpose: "assistants"
-          // Removed the 'filename' parameter - OpenAI API doesn't support it
+        // Create a new FormData to properly send the file with its name
+        const fs = await import('fs');
+        const path = await import('path');
+        
+        // Get file extension from original filename or mimetype
+        let fileExtension = '.png'; // default
+        if (screenshotFile.originalFilename) {
+          fileExtension = path.extname(screenshotFile.originalFilename);
+        } else if (screenshotFile.mimetype) {
+          if (screenshotFile.mimetype.includes('jpeg')) fileExtension = '.jpg';
+          else if (screenshotFile.mimetype.includes('png')) fileExtension = '.png';
+          else if (screenshotFile.mimetype.includes('webp')) fileExtension = '.webp';
+        }
+        
+        // Create a temporary filename that OpenAI can recognize
+        const tempFilename = `screenshot${fileExtension}`;
+        
+        // Read the file and create a properly named stream
+        const fileBuffer = fs.readFileSync(screenshotFile.filepath);
+        const blob = new Blob([fileBuffer], { type: screenshotFile.mimetype || 'image/png' });
+        
+        // Create a File object with proper name and type
+        const fileObject = new File([blob], tempFilename, { 
+          type: screenshotFile.mimetype || 'image/png' 
         });
+        
+        const uploadedFile = await openai.files.create({
+          file: fileObject,
+          purpose: "assistants"
+        });
+        
         fileId = uploadedFile.id;
-        console.log("Uploaded file successfully:", fileId);
+        console.log("Uploaded file successfully with extension:", fileExtension, "ID:", fileId);
       } catch (uploadError) {
         console.error("File upload error:", uploadError);
         return res.status(500).json({ error: "Failed to upload screenshot" });
       }
     }
-
     // Add user message to thread with simpler format
     const messageData = {
       role: "user",
