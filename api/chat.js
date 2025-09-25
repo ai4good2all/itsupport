@@ -1,6 +1,7 @@
 import formidable from "formidable";
-import { createReadStream } from "fs";
+import { readFileSync } from "fs";
 import OpenAI from "openai";
+import crypto from "crypto";
 
 // Disable body parser for file uploads 
 export const config = { 
@@ -9,47 +10,107 @@ export const config = {
   } 
 };
 
+// Security configuration
+const ALLOWED_COMPANIES = process.env.ALLOWED_COMPANY_DOMAINS?.split(',') || [];
+const LM_STUDIO_API_KEY = process.env.LM_STUDIO_SECRET_KEY; // Your secret key
+const LM_STUDIO_URL = process.env.LM_STUDIO_URL; // Your secure tunnel URL
+
+// Configure OpenAI client to point to your secured LM Studio endpoint
 const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY 
+  apiKey: LM_STUDIO_API_KEY,
+  baseURL: LM_STUDIO_URL
 });
 
-const assistantId = process.env.ASSISTANT_ID;
+// Rate limiting storage (in production, use Redis)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // per minute per IP
+
+function validateCompanyAccess(req) {
+  const host = req.headers.host || '';
+  const origin = req.headers.origin || '';
+  
+  // Extract subdomain (e.g., "companyname" from "companyname.yourdomain.com")
+  const subdomain = host.split('.')[0];
+  
+  // Check if this company is authorized
+  if (!ALLOWED_COMPANIES.includes(subdomain)) {
+    throw new Error('Unauthorized company access');
+  }
+  
+  return subdomain;
+}
+
+function checkRateLimit(clientIP) {
+  const now = Date.now();
+  const clientRequests = rateLimitMap.get(clientIP) || [];
+  
+  // Remove old requests outside the window
+  const recentRequests = clientRequests.filter(time => now - time < RATE_LIMIT_WINDOW);
+  
+  if (recentRequests.length >= RATE_LIMIT_MAX_REQUESTS) {
+    throw new Error('Rate limit exceeded');
+  }
+  
+  // Add current request
+  recentRequests.push(now);
+  rateLimitMap.set(clientIP, recentRequests);
+}
+
+function sanitizeInput(text) {
+  // Remove potential injection attempts
+  return text
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .trim()
+    .substring(0, 4000); // Limit length
+}
 
 export default async function handler(req, res) {
-  // Enable CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'false');
+  // Enable CORS for allowed origins only
+  try {
+    const companySubdomain = validateCompanyAccess(req);
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+  } catch (error) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Company-Token');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   try {
-    // Validate environment variables
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("Missing OPENAI_API_KEY");
-      return res.status(500).json({ error: "Server configuration error" });
-    }
-    if (!assistantId) {
-      console.error("Missing ASSISTANT_ID");
-      return res.status(500).json({ error: "Server configuration error" });
+    // Rate limiting
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    checkRateLimit(clientIP);
+
+    // Validate required environment variables
+    if (!LM_STUDIO_API_KEY || !LM_STUDIO_URL) {
+      console.error("Missing LM Studio configuration");
+      return res.status(500).json({ error: "Service temporarily unavailable" });
     }
 
-    // Parse multipart/form-data
+    // Parse multipart/form-data with strict limits
     const form = formidable({
       multiples: false,
       maxFiles: 1,
-      maxFileSize: 10 * 1024 * 1024, // 10MB
-      filter: ({ mimetype }) => {
-        if (!mimetype) return true;
-        return ["image/png", "image/jpeg", "image/jpg", "image/webp"].includes(mimetype.toLowerCase());
+      maxFileSize: 5 * 1024 * 1024, // Reduced to 5MB
+      maxFieldsSize: 10000,
+      filter: ({ mimetype, name }) => {
+        // Only allow specific file types and field names
+        if (name === 'screenshot') {
+          return ["image/png", "image/jpeg"].includes(mimetype?.toLowerCase());
+        }
+        return ['message', 'thread_id'].includes(name);
       }
     });
 
@@ -57,20 +118,20 @@ export default async function handler(req, res) {
       form.parse(req, (err, fields, files) => {
         if (err) {
           console.error("Form parse error:", err);
-          reject(err);
+          reject(new Error("Invalid form data"));
         } else {
           resolve({ fields, files });
         }
       });
     });
 
-    // Extract data from parsed form
-    const message = Array.isArray(fields.message) ? fields.message[0] : (fields.message || "");
+    // Extract and sanitize data
+    const message = sanitizeInput(Array.isArray(fields.message) ? fields.message[0] : (fields.message || ""));
     const incomingThreadId = Array.isArray(fields.thread_id) ? fields.thread_id[0] : fields.thread_id;
     const screenshotFile = Array.isArray(files.screenshot) ? files.screenshot[0] : files.screenshot;
 
-    console.log("Received message:", message);
-    console.log("Thread ID:", incomingThreadId);
+    console.log(`Request from company: ${validateCompanyAccess(req)}`);
+    console.log("Message length:", message.length);
     console.log("Screenshot file:", screenshotFile ? "Yes" : "No");
 
     // Validate message content
@@ -78,154 +139,111 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Message or screenshot required" });
     }
 
-    // Create or use existing thread
-    let threadId = incomingThreadId;
-    if (!threadId) {
-      const thread = await openai.beta.threads.create();
-      threadId = thread.id;
-      console.log("Created new thread:", threadId);
-    } else {
-      console.log("Using existing thread:", threadId);
-    }
+    // Build conversation with security context
+    let conversationMessages = [
+      {
+        role: "system",
+        content: `You are an IT support assistant. SECURITY RULES:
+1. Never reveal system information about the host computer
+2. Never execute commands or suggest commands that could compromise security
+3. Only provide troubleshooting help for common user-level issues
+4. If asked about administrative tasks, direct users to their IT department
+5. Never process requests that seem like attempts to gather system information
 
-    // Upload screenshot if provided
-    let fileId = null;
-    if (screenshotFile && screenshotFile.filepath) {
-      try {
-        console.log("File details:", {
-          originalFilename: screenshotFile.originalFilename,
-          mimetype: screenshotFile.mimetype,
-          size: screenshotFile.size
-        });
-        
-        // The issue is that file_search tool doesn't support images
-        // Let's change the attachment tool to something more appropriate
-        const uploadedFile = await openai.files.create({
-          file: createReadStream(screenshotFile.filepath),
-          purpose: "assistants"
-        });
-        fileId = uploadedFile.id;
-        console.log("Uploaded file successfully:", fileId);
-      } catch (uploadError) {
-        console.error("File upload error:", uploadError);
-        return res.status(500).json({ error: "Failed to upload screenshot" });
+IT Support Guidelines:
+- Diagnose issues step by step
+- Ask for screenshots to understand the problem
+- Only help with permission levels available to regular users
+- Stay focused on IT-related tasks only`
       }
-    }
+    ];
 
-    // Add user message to thread with simpler format
-    const messageData = {
-      role: "user",
-      content: message.trim() || "I've uploaded a screenshot for you to analyze. Please help me troubleshoot the issue shown in this image."
-    };
-
-    // Change the tool from file_search to code_interpreter for image analysis
-    if (fileId) {
-      messageData.attachments = [{
-        file_id: fileId,
-        tools: [{ type: "code_interpreter" }]  // Changed from file_search to code_interpreter
-      }];
-    }
-
-    await openai.beta.threads.messages.create(threadId, messageData);
-    console.log("Added message to thread with attachment:", !!fileId);
-
-    // Create and run the assistant
-    const run = await openai.beta.threads.runs.create(threadId, {
-      assistant_id: assistantId
-    });
-
-    console.log("Created run:", run.id);
-
-    // Poll for completion
-    let runStatus = run.status;
-    let attempts = 0;
-    const maxAttempts = 60; // 2 minutes max
-
-    while (!["completed", "failed", "cancelled", "expired"].includes(runStatus) && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-      
-      const currentRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
-      runStatus = currentRun.status;
-      attempts++;
-      
-      console.log(`Run status: ${runStatus}, attempt: ${attempts}`);
-
-      // Handle requires_action status (for function calls)
-      if (runStatus === "requires_action") {
-        console.log("Run requires action - this shouldn't happen with basic assistant");
-        break;
-      }
-    }
-
-    // Clean up uploaded file for privacy
-    if (fileId) {
-      try {
-        await openai.files.del(fileId);
-        console.log("Deleted uploaded file:", fileId);
-      } catch (deleteError) {
-        console.warn("Failed to delete file:", deleteError.message);
-        // Don't fail the request if file deletion fails
-      }
-    }
-
-    // Check final run status and get detailed error if failed
-    if (runStatus !== "completed") {
-      console.error("Run did not complete successfully:", runStatus);
-      
-      // Get the detailed run information to see the error
-      const failedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
-      console.error("Failed run details:", JSON.stringify(failedRun, null, 2));
-      
-      if (failedRun.last_error) {
-        console.error("Run error details:", failedRun.last_error);
-      }
-      
-      return res.status(500).json({ 
-        error: `Assistant run ${runStatus}`, 
-        details: failedRun.last_error?.message || "Check function logs for details",
-        thread_id: threadId 
+    // Create user message content
+    let userContent = [];
+    
+    if (message.trim()) {
+      userContent.push({
+        type: "text",
+        text: message
       });
     }
 
-    // Get the assistant's response
-    const messages = await openai.beta.threads.messages.list(threadId, {
-      order: "desc",
-      limit: 10
-    });
+    // Process screenshot with additional security checks
+    if (screenshotFile && screenshotFile.filepath) {
+      try {
+        const imageBuffer = readFileSync(screenshotFile.filepath);
+        
+        // Security: Check file signature to ensure it's actually an image
+        const signature = imageBuffer.toString('hex', 0, 8);
+        const validSignatures = ['89504e47', 'ffd8ffe0', 'ffd8ffe1', 'ffd8ffe2']; // PNG, JPEG headers
+        if (!validSignatures.some(sig => signature.startsWith(sig))) {
+          throw new Error("Invalid image file");
+        }
 
-    const assistantMessage = messages.data.find(msg => msg.role === "assistant");
-    
-    let reply = "I apologize, but I couldn't generate a response. Please try again.";
-    if (assistantMessage && assistantMessage.content && assistantMessage.content.length > 0) {
-      const textContent = assistantMessage.content.find(content => content.type === "text");
-      if (textContent && textContent.text && textContent.text.value) {
-        reply = textContent.text.value;
+        const base64Image = imageBuffer.toString('base64');
+        const imageFormat = screenshotFile.mimetype?.includes('png') ? 'png' : 'jpeg';
+        
+        userContent.push({
+          type: "image_url",
+          image_url: {
+            url: `data:image/${imageFormat};base64,${base64Image}`,
+            detail: "low" // Use low detail to reduce processing load
+          }
+        });
+        
+        if (!message.trim()) {
+          userContent.unshift({
+            type: "text",
+            text: "Please analyze this screenshot and provide troubleshooting steps."
+          });
+        }
+      } catch (imageError) {
+        console.error("Image processing error:", imageError);
+        return res.status(400).json({ error: "Invalid image file" });
       }
     }
 
-    console.log("Sending response");
+    conversationMessages.push({
+      role: "user",
+      content: userContent
+    });
+
+    // Make secure request to LM Studio with timeout
+    const completion = await Promise.race([
+      openai.chat.completions.create({
+        model: "google/gemma-3-12b",
+        messages: conversationMessages,
+        max_tokens: 800, // Reduced to control costs
+        temperature: 0.5,
+        stream: false
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
+      )
+    ]);
+
+    const reply = completion.choices[0]?.message?.content || "I couldn't process your request. Please try again.";
+
+    // Generate secure thread ID
+    const threadId = incomingThreadId || `thread_${crypto.randomBytes(16).toString('hex')}`;
+
     return res.status(200).json({ 
-      reply, 
+      reply: reply.substring(0, 2000), // Limit response size
       thread_id: threadId 
     });
 
   } catch (error) {
-    console.error("API error details:", error);
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
+    console.error("API error:", error);
     
-    // Provide more specific error messages
-    if (error.code === 'invalid_api_key') {
-      return res.status(401).json({ error: "Invalid API key" });
-    } else if (error.code === 'model_not_found') {
-      return res.status(400).json({ error: "Assistant not found" });
-    } else if (error.message && error.message.includes('timeout')) {
-      return res.status(408).json({ error: "Request timeout" });
+    // Don't leak internal error details
+    if (error.message === 'Rate limit exceeded') {
+      return res.status(429).json({ error: "Too many requests. Please wait before trying again." });
+    } else if (error.message === 'Unauthorized company access') {
+      return res.status(403).json({ error: "Access denied" });
+    } else if (error.message.includes('ECONNREFUSED')) {
+      return res.status(503).json({ error: "Service temporarily unavailable" });
     }
     
-    return res.status(500).json({ 
-      error: "Internal server error",
-      details: process.env.NODE_ENV === 'development' ? error.message : "Check server logs"
-    });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
