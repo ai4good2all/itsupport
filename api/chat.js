@@ -197,6 +197,20 @@ export default async function handler(req, res) {
         Only escalate to IT professionals after trying 2-3 individual solutions
        
         Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.`
+
+        TASK COMPLETION RULES:
+When the user confirms their issue is resolved (e.g., "it works", "that fixed it", "it's working now"):
+1. Acknowledge the successful resolution
+2. Provide a brief summary of what was done
+3. Ask if they need help with anything else IT-related
+4. If they say no or thank you, end with: "Great! This support session is now complete. Feel free to start a new conversation if you need IT help in the future."
+5. Mark the session as complete by including "SESSION_COMPLETE" in your response
+
+COMPLETION INDICATORS to watch for:
+- "It works", "That fixed it", "It's working", "Problem solved"
+- "Thank you", "Thanks", "All good", "Perfect"
+- "No other issues", "That's all", "Nothing else"
+    
       }
     ];
 
