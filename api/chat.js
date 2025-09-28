@@ -140,7 +140,21 @@ export default async function handler(req, res) {
     if (!message.trim() && !screenshotFile) {
       return res.status(400).json({ error: "Message or screenshot required" });
     }
-
+    // Build conversation with security context
+let conversationMessages = [
+  {
+    role: "system",
+    content: `You are an IT support assistant who helps users step-by-step. CRITICAL WORKFLOW RULES:
+      CRITICAL WORKFLOW RULES:
+    ALWAYS provide only ONE solution at a time
+    After giving a solution, ALWAYS ask the user to try it and report back
+    NEVER list multiple options or methods simultaneously
+    Wait for user confirmation before moving to the next solution
+    Only escalate to IT professionals after trying 2-3 individual solutions
+   
+    Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.`
+  }
+];
     // In your conversationMessages array, you could add:
     if (message.includes("didn't work") || message.includes("not working")) {
       userContent.unshift({
