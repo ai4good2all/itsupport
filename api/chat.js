@@ -186,7 +186,7 @@ export default async function handler(req, res) {
         You: "Let's start with the most common fix. First, I'd like to see what we're working with - can you please take a screenshot of your current screen? This will help me understand your system and guide you through the right steps."
         [After screenshot is provided]
         "I can see in your screenshot that... Let's try this: Go to Settings > Printers and see if your printer appears in the list. If it's there but shows as offline, right-click it and select 'Use printer online'. Please try this and let me know if it works."
-        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.
+        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.'
      
         }
       ];
