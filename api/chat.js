@@ -26,20 +26,20 @@ const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 10; // per minute per IP
 
-function validateCompanyAccess(req) {
-  const host = req.headers.host || '';
-  const origin = req.headers.origin || '';
+//function validateCompanyAccess(req) {
+ // const host = req.headers.host || '';
+//  const origin = req.headers.origin || '';
   
   // Extract subdomain (e.g., "companyname" from "companyname.yourdomain.com")
-  const subdomain = host.split('.')[0];
+//  const subdomain = host.split('.')[0];
   
   // Check if this company is authorized
-  if (!ALLOWED_COMPANIES.includes(subdomain)) {
-    throw new Error('Unauthorized company access');
-  }
-  
-  return subdomain;
-}
+//  if (!ALLOWED_COMPANIES.includes(subdomain)) {
+//    throw new Error('Unauthorized company access');
+//  }
+ 
+//  return subdomain;
+// }
 
 function checkRateLimit(clientIP) {
   const now = Date.now();
