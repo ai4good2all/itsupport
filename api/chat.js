@@ -179,6 +179,13 @@ export default async function handler(req, res) {
   }
 ];
 
+    // In your conversationMessages array, you could add:
+    if (message.includes("didn't work") || message.includes("not working")) {
+      userContent.unshift({
+        type: "text",
+        text: `Previous solution didn't work. Please provide the NEXT most likely solution (not a list of multiple options). ${message}`
+      });
+    }
     // Create user message content
     let userContent = [];
     
