@@ -195,8 +195,6 @@ export default async function handler(req, res) {
         NEVER list multiple options or methods simultaneously
         Wait for user confirmation before moving to the next solution
         Only escalate to IT professionals after trying 2-3 individual solutions
-       
-        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.`
 
         TASK COMPLETION RULES:
 When the user confirms their issue is resolved (e.g., "it works", "that fixed it", "it's working now"):
@@ -210,6 +208,10 @@ COMPLETION INDICATORS to watch for:
 - "It works", "That fixed it", "It's working", "Problem solved"
 - "Thank you", "Thanks", "All good", "Perfect"
 - "No other issues", "That's all", "Nothing else"
+       
+        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.`
+
+      
     
       }
     ];
