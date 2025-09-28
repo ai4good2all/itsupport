@@ -132,7 +132,7 @@ export default async function handler(req, res) {
     const incomingThreadId = Array.isArray(fields.thread_id) ? fields.thread_id[0] : fields.thread_id;
     const screenshotFile = Array.isArray(files.screenshot) ? files.screenshot[0] : files.screenshot;
 
-    console.log(`Request from company: ${validateCompanyAccess(req)}`);
+    // console.log(`Request from company: ${validateCompanyAccess(req)}`);
     console.log("Message length:", message.length);
     console.log("Screenshot file:", screenshotFile ? "Yes" : "No");
 
