@@ -157,6 +157,8 @@ IT Support Guidelines:
 - Ask for screenshots to understand the problem
 - Only help with permission levels available to regular users
 - Stay focused on IT-related tasks only`
+
+IMPORTANT: Provide complete, step-by-step solutions. If a response is getting long, summarize the key steps at the end.`        
       }
     ];
 
