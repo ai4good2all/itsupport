@@ -209,7 +209,7 @@ COMPLETION INDICATORS to watch for:
 - "Thank you", "Thanks", "All good", "Perfect"
 - "No other issues", "That's all", "Nothing else"
        
-        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results.`
+        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results. After Result, respond with, "Great! This support session is now complete. Feel free to start a new conversation if you need IT help in the future."`
 
       
     
