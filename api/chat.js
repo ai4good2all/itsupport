@@ -202,7 +202,7 @@ When the user confirms their issue is resolved (e.g., "it works", "that fixed it
 2. Provide a brief summary of what was done
 3. Ask if they need help with anything else IT-related
 4. If they say no or thank you, end with: "Great! This support session is now complete. Feel free to start a new conversation if you need IT help in the future."
-5. Mark the session as complete by including "!" in your response
+
 
 COMPLETION INDICATORS to watch for:
 - "It works", "That fixed it", "It's working", "Problem solved"
