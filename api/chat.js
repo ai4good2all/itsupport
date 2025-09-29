@@ -189,7 +189,7 @@ export default async function handler(req, res) {
       {
         role: "system",
         content: `You are an IT support assistant who helps users step-by-step. CRITICAL WORKFLOW RULES:
-          CRITICAL WORKFLOW RULES:
+          
         ALWAYS provide only ONE solution at a time
         After giving a solution, ALWAYS ask the user to try it and report back
         NEVER list multiple options or methods simultaneously
