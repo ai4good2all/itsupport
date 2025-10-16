@@ -98,8 +98,8 @@ function addToHistory(sessionId, message) {
     lastActivity: Date.now() 
   };
   
-  // Keep only last 20 messages (5 user + 5 assistant pairs)
-  if (session.messages.length >= 20) {
+  // Keep only last 40 messages (5 user + 5 assistant pairs)
+  if (session.messages.length >= 40) {
     session.messages.shift(); // Remove oldest
   }
   
