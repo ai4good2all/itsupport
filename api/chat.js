@@ -92,12 +92,65 @@ function getConversationHistory(sessionId) {
   return session.messages;
 }
 
+// Add conversation history
+const history = getConversationHistory(sessionId);
+if (history.length > 0) {
+  conversationMessages.push(...history);
+}
+
+// NEW: Add metadata if conversation is long
+if (history.length > 20) {
+  const metadata = getSessionMetadata(sessionId);
+  conversationMessages.splice(1, 0, {
+    role: "system",
+    content: `Note: This is an extended support session with ${metadata.totalMessages} messages. Multiple issues may have been discussed. Reference earlier solutions as needed.`
+  });
+}
+
 function addToHistory(sessionId, message) {
   const session = sessionStore.get(sessionId) || { 
     messages: [], 
+    issues: [],
     lastActivity: Date.now() 
   };
   
+  session.messages.push(message);
+  
+  // Smart trimming: Keep first 4 messages + last 36 messages = 40 total
+  if (session.messages.length > 40) {
+    const firstFour = session.messages.slice(0, 4); // Original problem context
+    const lastThirtySix = session.messages.slice(-36); // Recent conversation
+    session.messages = [...firstFour, ...lastThirtySix];
+  }
+  
+  session.lastActivity = Date.now();
+  sessionStore.set(sessionId, session);
+}
+
+function getSessionMetadata(sessionId) {
+  const session = sessionStore.get(sessionId);
+  if (!session || !session.messages.length) return null;
+  
+  // Extract issues from conversation
+  const issues = [];
+  for (let msg of session.messages) {
+    if (msg.role === 'user' && typeof msg.content === 'string') {
+      // Simple heuristic: messages with "?" or certain keywords might be new issues
+      if (msg.content.includes('?') || msg.content.toLowerCase().includes('also') || 
+          msg.content.toLowerCase().includes('another') || msg.content.toLowerCase().includes('now')) {
+        issues.push(msg.content.substring(0, 100)); // First 100 chars
+      }
+    }
+  }
+  
+  return {
+    totalMessages: session.messages.length,
+    issueCount: issues.length,
+    duration: Date.now() - session.lastActivity
+  };
+}
+
+
   // Keep only last 40 messages (5 user + 5 assistant pairs)
   if (session.messages.length >= 40) {
     session.messages.shift(); // Remove oldest
