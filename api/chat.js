@@ -141,7 +141,7 @@ function getSessionMetadata(sessionId) {
         issues.push(msg.content.substring(0, 100)); // First 100 chars
       }
     }
-  
+  }
   
   return {
     totalMessages: session.messages.length,
