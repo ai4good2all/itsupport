@@ -6,6 +6,7 @@ const sendBtn = document.getElementById("send-btn");
 
 // Thread persistence - MS
 let threadId = sessionStorage.getItem("thread_id") || null;
+let sessionId = sessionStorage.getItem("session_id") || null;
 
 // Initialize
 function init() {
@@ -133,6 +134,9 @@ async function sendMessage() {
       if (threadId) {
         formData.append("thread_id", threadId);
       }
+      if (sessionId) {
+        formData.append("session_id", sessionId); 
+      }
 
       console.log("Sending request to /api/chat");
 
@@ -163,6 +167,10 @@ async function sendMessage() {
       if (data.thread_id) {
         threadId = data.thread_id;
         sessionStorage.setItem("thread_id", threadId);
+      }
+      if (data.session_id) {
+        sessionId = data.session_id;  // ADD THIS
+        sessionStorage.setItem("session_id", sessionId);  // ADD THIS
       }
 
       // Remove thinking message
