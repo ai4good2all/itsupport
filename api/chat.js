@@ -98,8 +98,8 @@ function addToHistory(sessionId, message) {
     lastActivity: Date.now() 
   };
   
-  // Keep only last 10 messages (5 user + 5 assistant pairs)
-  if (session.messages.length >= 10) {
+  // Keep only last 20 messages (5 user + 5 assistant pairs)
+  if (session.messages.length >= 20) {
     session.messages.shift(); // Remove oldest
   }
   
@@ -188,33 +188,7 @@ export default async function handler(req, res) {
     let conversationMessages = [
       {
         role: "system",
-        content: `You are an IT support assistant who helps users step-by-step. CRITICAL WORKFLOW RULES:
-
-        Only assist with computer issues and mobile issues as well.
-        
-        ALWAYS provide only ONE solution at a time
-        After giving a solution, ALWAYS ask the user to try it and report back
-        NEVER list multiple options or methods simultaneously
-        Wait for user confirmation before moving to the next solution
-        Only escalate to IT professionals after trying 2-3 individual solutions
-
-        TASK COMPLETION RULES:
-When the user confirms their issue is resolved (e.g., "it works", "that fixed it", "it's working now"):
-1. Acknowledge the successful resolution
-2. Provide a brief summary of what was done
-3. Ask if they need help with anything else IT-related
-4. If they say no or thank you, end with: "Great! This support session is now complete. Feel free to start a new conversation if you need IT help in the future"
-
-
-COMPLETION INDICATORS to watch for:
-- "It works", "That fixed it", "It's working", "Problem solved"
-- "Thank you", "Thanks", "All good", "Perfect"
-- "No other issues", "That's all", "Nothing else"
-       
-        Remember: One solution at a time, wait for feedback, then proceed to the next step based on results. After Result, respond with, "Great! This support session is now complete. Feel free to start a new conversation if you need IT help in the future"`
-
-      
-    
+        content: process.env.SYSTEM_MESSAGE || `You are an IT support assistant. If this message appears, there was an error loading the system configuration. Please contact support.`
       }
     ];
 
