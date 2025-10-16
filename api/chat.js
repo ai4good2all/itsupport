@@ -92,21 +92,6 @@ function getConversationHistory(sessionId) {
   return session.messages;
 }
 
-// Add conversation history
-const history = getConversationHistory(sessionId);
-if (history.length > 0) {
-  conversationMessages.push(...history);
-}
-
-// NEW: Add metadata if conversation is long
-if (history.length > 20) {
-  const metadata = getSessionMetadata(sessionId);
-  conversationMessages.splice(1, 0, {
-    role: "system",
-    content: `Note: This is an extended support session with ${metadata.totalMessages} messages. Multiple issues may have been discussed. Reference earlier solutions as needed.`
-  });
-}
-
 function addToHistory(sessionId, message) {
   const session = sessionStore.get(sessionId) || { 
     messages: [], 
@@ -148,17 +133,6 @@ function getSessionMetadata(sessionId) {
     issueCount: issues.length,
     duration: Date.now() - session.lastActivity
   };
-}
-
-
-  // Keep only last 40 messages (5 user + 5 assistant pairs)
-  if (session.messages.length >= 40) {
-    session.messages.shift(); // Remove oldest
-  }
-  
-  session.messages.push(message);
-  session.lastActivity = Date.now();
-  sessionStore.set(sessionId, session);
 }
 
 export default async function handler(req, res) {
@@ -251,6 +225,17 @@ export default async function handler(req, res) {
       conversationMessages.push(...history);
     }
 
+    // NEW: Add metadata if conversation is long
+    if (history.length > 20) {
+      const metadata = getSessionMetadata(sessionId);
+      if (metadata) {
+        conversationMessages.splice(1, 0, {
+          role: "system",
+          content: `Note: This is an extended support session with ${metadata.totalMessages} messages. Multiple issues may have been discussed. Reference earlier solutions as needed.`
+        });
+      }
+    }
+    
     // In your conversationMessages array, you could add:
     if (message.includes("didn't work") || message.includes("not working")) {
       userContent.unshift({
