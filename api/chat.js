@@ -118,8 +118,8 @@ function addToHistory(sessionId, message) {
   
   // Smart trimming: Keep first 4 messages + last 36 messages = 40 total
   if (session.messages.length > 40) {
-    const firstFour = session.messages.slice(0, 4); // Original problem context
-    const lastThirtySix = session.messages.slice(-36); // Recent conversation
+    const firstFour = session.messages.slice(0, 4);
+    const lastThirtySix = session.messages.slice(-36);
     session.messages = [...firstFour, ...lastThirtySix];
   }
   
