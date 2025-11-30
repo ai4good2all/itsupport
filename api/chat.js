@@ -309,7 +309,7 @@ export default async function handler(req, res) {
         stream: false
       }),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
+        setTimeout(() => reject(new Error('Request timeout')), 60000) // 30 second timeout
       )
     ]);
 
